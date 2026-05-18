@@ -18,12 +18,12 @@ from .unet_blocks import (
     CrossAttnDownBlock3D,
     CrossAttnUpBlock3D,
     DownBlock3D,
-    UNetMidBlockKANCrossAttn,
+    UNetMidBlock3DCrossAttn,
     UpBlock3D,
     get_down_block,
     get_up_block,
 )
-from .resnet import InflatedConv3d
+from .resnet import InflatedConv3d,WavKANInflatedConv3d
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
@@ -52,7 +52,7 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
             "CrossAttnDownBlock3D",
             "DownBlock3D",
         ),
-        mid_block_type: str = "UNetMidBlockKANCrossAttn",
+        mid_block_type: str = "UNetMidBlock3DCrossAttn",
         up_block_types: Tuple[str] = (
             "UpBlock3D",
             "CrossAttnUpBlock3D",
@@ -85,6 +85,7 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
 
         # input
         self.conv_in = InflatedConv3d(in_channels, block_out_channels[0], kernel_size=3, padding=(1, 1), use_temp=self.use_temp)
+        #self.conv_in = WavKANInflatedConv3d(in_channels, block_out_channels[0], kernel_size=3, padding=(1, 1), use_temp=self.use_temp, wavelet_type='morlet', kan_hidden_dim=None)
 
         # time
         self.time_proj = Timesteps(block_out_channels[0], flip_sin_to_cos, freq_shift)
@@ -142,8 +143,8 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
             self.down_blocks.append(down_block)
 
         # mid
-        if mid_block_type == "UNetMidBlockKANCrossAttn":
-            self.mid_block = UNetMidBlockKANCrossAttn(
+        if mid_block_type == "UNetMidBlock3DCrossAttn":
+            self.mid_block = UNetMidBlock3DCrossAttn(
                 in_channels=block_out_channels[-1],
                 temb_channels=time_embed_dim,
                 resnet_eps=norm_eps,
@@ -210,6 +211,7 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
         self.conv_norm_out = nn.GroupNorm(num_channels=block_out_channels[0], num_groups=norm_num_groups, eps=norm_eps)
         self.conv_act = nn.SiLU()
         self.conv_out = InflatedConv3d(block_out_channels[0], out_channels, kernel_size=3, padding=1, use_temp=self.use_temp)
+        #self.conv_out = WavKANInflatedConv3d(block_out_channels[0], out_channels, kernel_size=3, padding=1, use_temp=self.use_temp, wavelet_type='morlet', kan_hidden_dim=None)
 
         for m in self.modules():
             if isinstance(m, nn.Conv1d):

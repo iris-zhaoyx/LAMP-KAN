@@ -4,12 +4,8 @@ import torch
 from torch import nn
 
 from .attention import Transformer3DModel
-from .resnet import Downsample3D, ResnetBlock3D, Upsample3D, ResnetBlockKAN
-from .fast_kan_conv import FastKANConv3DLayer
+from .resnet import Downsample3D, ResnetBlock3D, Upsample3D
 
-class Swish(nn.Module):
-    def forward(self, x):
-        return x * torch.sigmoid(x)
 
 def get_down_block(
     down_block_type,
@@ -131,8 +127,8 @@ def get_up_block(
         )
     raise ValueError(f"{up_block_type} does not exist.")
 
-# source
-class UNetMidBlockKANCrossAttn(nn.Module):
+
+class UNetMidBlock3DCrossAttn(nn.Module):
     def __init__(
         self,
         in_channels: int,
@@ -160,7 +156,7 @@ class UNetMidBlockKANCrossAttn(nn.Module):
 
         # there is always at least one resnet
         resnets = [
-            ResnetBlockKAN(
+            ResnetBlock3D(
                 in_channels=in_channels,          #1280
                 out_channels=in_channels,            # 1280
                 temb_channels=temb_channels,
@@ -171,7 +167,8 @@ class UNetMidBlockKANCrossAttn(nn.Module):
                 non_linearity=resnet_act_fn,
                 output_scale_factor=output_scale_factor,
                 pre_norm=resnet_pre_norm,
-                use_temp=use_temp
+                use_temp=use_temp,
+                is_mid_block=True
             )
         ]
         attentions = []
@@ -193,7 +190,7 @@ class UNetMidBlockKANCrossAttn(nn.Module):
                 )
             )
             resnets.append(
-                ResnetBlockKAN(
+                ResnetBlock3D(
                     in_channels=in_channels,
                     out_channels=in_channels,
                     temb_channels=temb_channels,
@@ -204,7 +201,8 @@ class UNetMidBlockKANCrossAttn(nn.Module):
                     non_linearity=resnet_act_fn,
                     output_scale_factor=output_scale_factor,
                     pre_norm=resnet_pre_norm,
-                    use_temp=use_temp
+                    use_temp=use_temp,
+                    is_mid_block=True
                 )
             )
 
@@ -212,78 +210,12 @@ class UNetMidBlockKANCrossAttn(nn.Module):
         self.resnets = nn.ModuleList(resnets)
 
     def forward(self, hidden_states, temb=None, encoder_hidden_states=None, attention_mask=None):
-        hidden_states = self.resnets[0](hidden_states, temb)        # 输入 hidden_states 首先通过第一个残差块（self.resnets[0]）
-        for attn, resnet in zip(self.attentions, self.resnets[1:]):           #同时遍历注意力层和剩余的残差块（从第二个开始）
+        hidden_states = self.resnets[0](hidden_states, temb)        # input： hidden_states 
+        for attn, resnet in zip(self.attentions, self.resnets[1:]):           #
             hidden_states = attn(hidden_states, encoder_hidden_states=encoder_hidden_states).sample
             hidden_states = resnet(hidden_states, temb)
 
         return hidden_states
-
-# mine
-# class FastKanMidBlock(nn.Module):
-#     def __init__(
-#         self,
-#         in_channels: int,
-#         temb_channels: int,
-#         dropout: float = 0.0,
-#         num_layers: int = 1,
-#         resnet_eps: float = 1e-6,
-#         resnet_time_scale_shift: str = "default",
-#         resnet_act_fn: str = "swish",
-#         resnet_groups: int = 32,
-#         resnet_pre_norm: bool = True,
-#         attn_num_head_channels=1,
-#         output_scale_factor=1.0,
-#         cross_attention_dim=1280,
-#         dual_cross_attention=False,
-#         use_linear_projection=False,
-#         upcast_attention=False,
-#         use_temp=True
-#     ):
-#         super().__init__()
-#
-#         self.temb_proj = nn.Sequential(
-#             Swish(),
-#             nn.Linear(temb_channels, in_channels),     # 1280->1280
-#         )
-#
-#
-#         self.resnets = [
-#             ResnetBlock3D(
-#                 in_channels=in_channels,          #1280
-#                 out_channels=in_channels,            # 1280
-#                 temb_channels=temb_channels,
-#                 eps=resnet_eps,
-#                 groups=resnet_groups,
-#                 dropout=dropout,
-#                 time_embedding_norm=resnet_time_scale_shift,
-#                 non_linearity=resnet_act_fn,
-#                 output_scale_factor=output_scale_factor,
-#                 pre_norm=resnet_pre_norm,
-#                 use_temp=use_temp
-#             )
-#         ]
-#
-#         self.FastKAN = FastKANConv3DLayer(in_channels, in_channels, 1, groups=1, padding=0, stride=1, dilation=1,
-#                  grid_size=8, base_activation=nn.SiLU, grid_range=[-2, 2], dropout=0.0)
-#
-#
-#
-#     def forward(self, hidden_states, temb=None, encoder_hidden_states=None, attention_mask=None):
-#         print("hidden_states0.shape", hidden_states.shape)
-#         #hidden_states = self.resnets[0](hidden_states, temb)
-#         temb = self.temb_proj(temb)[:, :, None, None, None]
-#         hidden_states = hidden_states + temb
-#         print("hidden_states1.shape", hidden_states.shape)
-#
-#
-#         hidden_states = self.FastKAN(hidden_states)
-#         print("hidden_states2.shape", hidden_states.shape)
-#
-#         return hidden_states
-
-
-
 
 
 class CrossAttnDownBlock3D(nn.Module):
@@ -573,7 +505,7 @@ class CrossAttnUpBlock3D(nn.Module):
             # pop res hidden states
             res_hidden_states = res_hidden_states_tuple[-1]
             res_hidden_states_tuple = res_hidden_states_tuple[:-1]
-            hidden_states = torch.cat([hidden_states, res_hidden_states], dim=1)       # 跳跃连接
+            hidden_states = torch.cat([hidden_states, res_hidden_states], dim=1)       # cat
 
             if self.training and self.gradient_checkpointing:
 
